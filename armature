@@ -170,6 +170,7 @@ cmd_run() {
   # Build docker run command
   local -a cmd=(docker run
     --name "$name"
+    -e "ARMATURE=1"
     -v "$worktree_path:/workspace"
     -v "${HOME}/.claude:/home/node/.claude"
   )

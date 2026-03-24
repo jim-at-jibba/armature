@@ -114,5 +114,19 @@ The `armature:v1` image is based on `node:22-bookworm-slim` with:
 - Each container runs Claude with `--dangerously-skip-permissions` in an isolated environment
 - Your project worktree is bind-mounted to `/workspace`
 - Your `~/.claude` config is mounted for auth, settings, MCP servers, and skills
+- Symlinked directories in `~/.claude` (hooks, skills, commands) are automatically detected and mounted
 - Git worktrees isolate work per-branch — Claude can't affect your main branch
 - No remote git access from the container — review and push from your host
+
+## Hooks
+
+Armature sets `ARMATURE=1` inside the container. If you have hooks that only make sense on the host (e.g. syncing sessions to a local vault, writing to host-only paths), guard them:
+
+```json
+{
+  "type": "command",
+  "command": "[ -n \"$ARMATURE\" ] && exit 0; your-host-only-command"
+}
+```
+
+This makes the hook silently skip inside the container and run normally on your host.
