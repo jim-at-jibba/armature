@@ -2,25 +2,15 @@ FROM docker/sandbox-templates:claude-code
 
 USER root
 
-# Install system packages
-RUN apt-get update && apt-get install -y \
-    jq \
-    fzf \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install ripgrep
-RUN curl -LO https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep_14.1.1-1_amd64.deb \
-    && dpkg -i ripgrep_14.1.1-1_amd64.deb \
-    && rm ripgrep_14.1.1-1_amd64.deb
-
-# Install gh CLI
-RUN (type -p wget >/dev/null || apt-get install wget -y) \
+# Install system packages and gh CLI in a single apt layer
+RUN apt-get update \
+    && apt-get install -y fzf ripgrep \
     && mkdir -p -m 755 /etc/apt/keyrings \
-    && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
     | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt-get update && apt-get install gh -y \
+    && apt-get update && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv to a shared location

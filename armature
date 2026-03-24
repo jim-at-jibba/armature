@@ -78,7 +78,7 @@ sandbox_name() {
 
 # Check if a sandbox with the given name is running
 sandbox_exists() {
-  docker sandbox ls --json 2>/dev/null | jq -e ".[] | select(.name == \"$1\")" > /dev/null 2>&1
+  docker sandbox ls --json 2>/dev/null | jq -e ".sandboxes[] | select(.name == \"$1\")" > /dev/null 2>&1
 }
 
 # Detect branch from current worktree directory
@@ -137,7 +137,7 @@ cmd_run() {
     branch="$target"
     local repo
     repo=$(repo_name)
-    worktree_path="$(git rev-parse --show-toplevel)/../${repo}-$(sanitise "$branch")"
+    worktree_path="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/${repo}-$(sanitise "$branch")"
 
     if [[ -d "$worktree_path" ]]; then
       # Verify it's actually a git directory
@@ -172,9 +172,11 @@ cmd_run() {
   fi
 
   # Build docker sandbox run command
-  local -a cmd=(docker sandbox run claude "$worktree_path" "${HOME}/.claude:ro"
+  # Flags must come before workspaces in docker sandbox run
+  local -a cmd=(docker sandbox run
     --name "$name"
     --template "$TEMPLATE"
+    claude "$worktree_path" "${HOME}/.claude:ro"
     --)
 
   cmd+=(--dangerously-skip-permissions)
