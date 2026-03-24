@@ -179,6 +179,11 @@ cmd_run() {
     cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json")
   fi
 
+  # Pass through OAuth token if set
+  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+    cmd+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}")
+  fi
+
   # Mount prompt file into container if provided
   if [[ -n "$prompt_file" ]]; then
     cmd+=(-v "$prompt_file:/workspace/.armature-prompt:ro")
