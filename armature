@@ -174,9 +174,22 @@ cmd_run() {
     -v "${HOME}/.claude:/home/node/.claude"
   )
 
-  # Mount .claude.json if it exists (Claude Code config/auth)
+  # Resolve symlinks in .claude (hooks, skills, commands may point outside ~/.claude)
+  for link in "${HOME}/.claude/hooks" "${HOME}/.claude/skills" "${HOME}/.claude/commands"; do
+    if [[ -L "$link" ]]; then
+      local target
+      target=$(readlink "$link")
+      cmd+=(-v "$target:$target:ro")
+    fi
+  done
+
+  # Copy .claude.json to a temp file and mount that (Claude needs write access
+  # but we don't want it writing back to the host copy)
   if [[ -f "${HOME}/.claude.json" ]]; then
-    cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json:ro")
+    local tmp_claude_json
+    tmp_claude_json=$(mktemp)
+    cp "${HOME}/.claude.json" "$tmp_claude_json"
+    cmd+=(-v "$tmp_claude_json:/home/node/.claude.json")
   fi
 
   # Pass through OAuth token if set
