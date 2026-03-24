@@ -197,8 +197,31 @@ cmd_run() {
     exec "${cmd[@]}"
   fi
 }
-cmd_attach() { die "not yet implemented"; }
-cmd_ls() { die "not yet implemented"; }
+cmd_attach() {
+  require_docker_sandbox
+
+  local branch
+
+  if [[ $# -gt 0 ]]; then
+    branch="$1"
+  else
+    require_git
+    branch=$(branch_from_cwd)
+  fi
+
+  local name
+  name=$(sandbox_name "$branch")
+
+  sandbox_exists "$name" || die "no running sandbox named $name"
+
+  echo "Attaching to sandbox $name"
+  exec docker sandbox exec "$name" claude --dangerously-skip-permissions
+}
+cmd_ls() {
+  require_docker_sandbox
+  echo "Running Armature sandboxes:"
+  docker sandbox ls 2>/dev/null | grep "${SANDBOX_PREFIX}-" || echo "  (none)"
+}
 cmd_stop() { die "not yet implemented"; }
 cmd_rm() { die "not yet implemented"; }
 
