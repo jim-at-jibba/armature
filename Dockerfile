@@ -4,39 +4,29 @@ ARG CLAUDE_CODE_VERSION=latest
 
 USER root
 
-# Install system packages
+# Install system packages (minimal — extend via your own Dockerfile)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     ca-certificates \
-    fzf \
     ripgrep \
     jq \
     procps \
-    sudo \
-    openssh-client \
     && rm -rf /var/lib/apt/lists/*
-
-# Install gh CLI
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    | tee /usr/share/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-    | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && apt-get update && apt-get install -y gh \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
-
-# Install asdf
-RUN git clone https://github.com/asdf-vm/asdf.git /opt/asdf --branch v0.14.1 \
-    && echo '. /opt/asdf/asdf.sh' >> /etc/bash.bashrc \
-    && echo '. /opt/asdf/asdf.sh' >> /etc/profile.d/asdf.sh
 
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
-# Use existing node user (UID 1000), set up workspace and claude dirs
+# Block git commit/push inside the container — changes should be committed from the host
+RUN mkdir -p /etc/armature/git-hooks \
+    && printf '#!/bin/sh\necho "armature: git commits are disabled — commit from your host" >&2\nexit 1\n' \
+       > /etc/armature/git-hooks/pre-commit \
+    && printf '#!/bin/sh\necho "armature: git push is disabled — push from your host" >&2\nexit 1\n' \
+       > /etc/armature/git-hooks/pre-push \
+    && chmod +x /etc/armature/git-hooks/* \
+    && git config --system core.hooksPath /etc/armature/git-hooks
+
+# Set up workspace and claude dirs for the node user (UID 1000)
 RUN mkdir -p /workspace /home/node/.claude \
     && chown -R node:node /workspace /home/node/.claude
 

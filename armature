@@ -1,8 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEMPLATE="armature:v1"
+DEFAULT_IMAGE="armature:v1"
 CONTAINER_PREFIX="armature"
+
+# Resolve image: .armature.json > ARMATURE_IMAGE env var > default
+resolve_image() {
+  # Check for .armature.json in the worktree or current directory
+  local config_file="${1:-.}/.armature.json"
+  if [[ -f "$config_file" ]]; then
+    local img
+    img=$(jq -r '.image // empty' "$config_file" 2>/dev/null)
+    if [[ -n "$img" ]]; then
+      echo "$img"
+      return
+    fi
+  fi
+
+  # Fall back to env var, then default
+  echo "${ARMATURE_IMAGE:-$DEFAULT_IMAGE}"
+}
 
 # --- Help ---
 
@@ -49,9 +66,9 @@ require_docker() {
     || die "docker is not available — is Docker running?"
 }
 
-require_template() {
-  docker image inspect "$TEMPLATE" > /dev/null 2>&1 \
-    || die "template image $TEMPLATE not found — run: docker build -t $TEMPLATE ."
+require_image() {
+  docker image inspect "$1" > /dev/null 2>&1 \
+    || die "image $1 not found — build it with: docker build -t $1 ."
 }
 
 repo_name() {
@@ -140,7 +157,10 @@ cmd_run() {
   fi
 
   require_docker
-  require_template
+
+  local image
+  image=$(resolve_image "$worktree_path")
+  require_image "$image"
 
   local name
   name=$(container_name "$branch")
@@ -207,12 +227,12 @@ cmd_run() {
 
   if [[ "$detach" == true ]]; then
     cmd+=(-d)
-    cmd+=("$TEMPLATE" claude "${claude_args[@]}")
+    cmd+=("$image" claude "${claude_args[@]}")
     "${cmd[@]}"
     echo "Container $name launched in background"
   else
     cmd+=(-it)
-    cmd+=("$TEMPLATE" claude "${claude_args[@]}")
+    cmd+=("$image" claude "${claude_args[@]}")
     exec "${cmd[@]}"
   fi
 }

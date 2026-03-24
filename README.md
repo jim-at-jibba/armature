@@ -98,25 +98,60 @@ cd ../my-project-my-feature
 npx react-native start
 ```
 
-## What's in the image
+## What's in the base image
 
-The `armature:v1` image is based on `node:22-bookworm-slim` with:
+The `armature:v1` image is deliberately lean — based on `node:22-bookworm-slim` with:
 
 - Claude Code
-- asdf (version manager)
-- gh (GitHub CLI)
-- jq, ripgrep, fzf
-- uv (Python package manager)
-- Git
+- Git (read-only — commits and pushes are blocked)
+- jq, ripgrep
+- curl
+
+## Custom images
+
+Extend the base image with tools your project needs:
+
+```dockerfile
+FROM armature:v1
+
+USER root
+RUN apt-get update && apt-get install -y fzf gh && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+USER node
+```
+
+Build it:
+
+```bash
+docker build -t my-team-armature:v1 .
+```
+
+Then tell armature to use it. In order of precedence:
+
+1. **Per-project** — add `.armature.json` to your repo root:
+   ```json
+   {
+     "image": "my-team-armature:v1"
+   }
+   ```
+
+2. **Global** — set an env var:
+   ```bash
+   export ARMATURE_IMAGE=my-team-armature:v1
+   ```
+
+3. **Default** — `armature:v1`
+
+See `examples/Dockerfile` for a full example with gh, fzf, uv, and asdf.
 
 ## How it works
 
 - Each container runs Claude with `--dangerously-skip-permissions` in an isolated environment
 - Your project worktree is bind-mounted to `/workspace`
+- Git commits and pushes are blocked inside the container — review and push from your host
 - Your `~/.claude` config is mounted for auth, settings, MCP servers, and skills
 - Symlinked directories in `~/.claude` (hooks, skills, commands) are automatically detected and mounted
 - Git worktrees isolate work per-branch — Claude can't affect your main branch
-- No remote git access from the container — review and push from your host
 
 ## Hooks
 
