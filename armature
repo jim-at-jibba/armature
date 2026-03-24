@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEMPLATE="armature:v1"
+SANDBOX_PREFIX="armature"
+
+# --- Help ---
+
+show_help() {
+  cat <<'HELP'
+Armature — the internal skeleton that gives a robot its structure.
+Armature gives Claude Code a safe, isolated frame to operate in.
+
+Usage:
+  armature [run] <branch|path> [prompt] [flags]
+  armature attach [branch]
+  armature ls
+  armature stop [branch]
+  armature rm <branch>
+
+Commands:
+  run       Create a worktree (if needed) and launch a sandbox (default)
+  attach    Attach to a running sandbox (infers from cwd if no branch given)
+  ls        List running Armature sandboxes
+  stop      Stop a sandbox (infers from cwd if no branch given)
+  rm        Stop and remove a sandbox
+
+Flags:
+  -d, --detach        Launch sandbox in the background
+  --prompt <file>     Pass a prompt file to Claude
+  -h, --help          Show this help message
+HELP
+}
+
+# --- Helpers ---
+
+die() {
+  echo "armature: $1" >&2
+  exit 1
+}
+
+require_git() {
+  git rev-parse --git-dir > /dev/null 2>&1 \
+    || die "not inside a git repository"
+}
+
+require_docker_sandbox() {
+  docker sandbox ls > /dev/null 2>&1 \
+    || die "docker sandbox is not available — is Docker Desktop running?"
+}
+
+# Check the template image has been built
+require_template() {
+  docker image inspect "$TEMPLATE" > /dev/null 2>&1 \
+    || die "template image $TEMPLATE not found — run: docker build -t $TEMPLATE ."
+}
+
+# Get the repo name (basename of the git toplevel)
+repo_name() {
+  basename "$(git rev-parse --show-toplevel)"
+}
+
+# Get the current branch name
+current_branch() {
+  git rev-parse --abbrev-ref HEAD
+}
+
+# Sanitise a branch name for use in paths and sandbox names
+# Replaces slashes, spaces, and other invalid chars with hyphens
+sanitise() {
+  echo "$1" | tr '/' '-' | tr -c '[:alnum:]-_.' '-' | sed 's/^-//;s/-$//'
+}
+
+# Derive sandbox name from branch
+sandbox_name() {
+  echo "${SANDBOX_PREFIX}-$(sanitise "$1")"
+}
+
+# Check if a sandbox with the given name is running
+sandbox_exists() {
+  docker sandbox ls --json 2>/dev/null | jq -e ".[] | select(.name == \"$1\")" > /dev/null 2>&1
+}
+
+# Detect branch from current worktree directory
+branch_from_cwd() {
+  local branch
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) \
+    || die "cannot detect branch from current directory"
+  echo "$branch"
+}
+
+# --- Subcommand placeholders (filled in subsequent tasks) ---
+
+cmd_run() { die "not yet implemented"; }
+cmd_attach() { die "not yet implemented"; }
+cmd_ls() { die "not yet implemented"; }
+cmd_stop() { die "not yet implemented"; }
+cmd_rm() { die "not yet implemented"; }
+
+# --- Main dispatcher ---
+
+main() {
+  case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+    run)       shift; cmd_run "$@" ;;
+    attach)    shift; cmd_attach "$@" ;;
+    ls)        cmd_ls ;;
+    stop)      shift; cmd_stop "$@" ;;
+    rm)        shift; cmd_rm "$@" ;;
+    "")        show_help; exit 0 ;;
+    *)         cmd_run "$@" ;;  # default subcommand is run
+  esac
+}
+
+main "$@"
