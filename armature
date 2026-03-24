@@ -222,8 +222,36 @@ cmd_ls() {
   echo "Running Armature sandboxes:"
   docker sandbox ls 2>/dev/null | grep "${SANDBOX_PREFIX}-" || echo "  (none)"
 }
-cmd_stop() { die "not yet implemented"; }
-cmd_rm() { die "not yet implemented"; }
+cmd_stop() {
+  require_docker_sandbox
+
+  local branch
+
+  if [[ $# -gt 0 ]]; then
+    branch="$1"
+  else
+    require_git
+    branch=$(branch_from_cwd)
+  fi
+
+  local name
+  name=$(sandbox_name "$branch")
+
+  echo "Stopping sandbox $name"
+  docker sandbox stop "$name"
+}
+cmd_rm() {
+  require_docker_sandbox
+
+  [[ $# -gt 0 ]] || die "usage: armature rm <branch>"
+
+  local name
+  name=$(sandbox_name "$1")
+
+  echo "Stopping and removing sandbox $name"
+  docker sandbox stop "$name" 2>/dev/null || true
+  docker sandbox rm "$name"
+}
 
 # --- Main dispatcher ---
 
