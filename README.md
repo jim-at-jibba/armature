@@ -3,21 +3,21 @@
 > The internal skeleton that gives a robot its structure.
 > Armature gives Claude Code a safe, isolated frame to operate in.
 
-Run Claude Code with full permissions inside a [Docker Sandbox](https://docs.docker.com/ai/sandboxes/), tied to git worktrees. Claude gets full autonomy. Your host stays safe.
+Run Claude Code with full permissions inside a Docker container, tied to git worktrees. Claude gets full autonomy. Your host stays safe.
 
 ## Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) with Sandbox support
+- [Docker](https://www.docker.com/products/docker-desktop/)
 - Git
 
 ## Setup
 
 1. Clone this repo:
    ```bash
-   git clone <repo-url> && cd armature
+   git clone https://github.com/jim-at-jibba/armature.git && cd armature
    ```
 
-2. Build the template image:
+2. Build the image:
    ```bash
    docker build -t armature:v1 .
    ```
@@ -29,7 +29,7 @@ Run Claude Code with full permissions inside a [Docker Sandbox](https://docs.doc
 
 ## Usage
 
-### Launch a sandbox
+### Launch a container
 
 From any git repository:
 
@@ -47,7 +47,7 @@ armature my-feature --prompt tasks.md
 armature my-feature "Implement feature X" -d
 ```
 
-### Attach to a running sandbox
+### Attach to a running container
 
 ```bash
 # From inside the worktree directory
@@ -58,20 +58,20 @@ armature attach
 armature attach my-feature
 ```
 
-### Manage sandboxes
+### Manage containers
 
 ```bash
-armature ls              # list running sandboxes
-armature stop my-feature # stop a sandbox
+armature ls              # list running containers
+armature stop my-feature # stop a container
 armature rm my-feature   # stop and remove
 ```
 
 ### Watch Claude work in real time
 
-Since the worktree syncs bidirectionally, you can run Metro (or any dev server) on your host while Claude works:
+Since the worktree is bind-mounted, you can run Metro (or any dev server) on your host while Claude works:
 
 ```bash
-# Terminal 1: Claude works in the sandbox
+# Terminal 1: Claude works in the container
 armature my-feature "Implement the new login screen"
 
 # Terminal 2: Watch changes live
@@ -79,21 +79,21 @@ cd ../my-project-my-feature
 npx react-native start
 ```
 
-## What's in the template
+## What's in the image
 
-The `armature:v1` image extends `docker/sandbox-templates:claude-code` with:
+The `armature:v1` image is based on `node:22-bookworm-slim` with:
 
+- Claude Code
 - asdf (version manager)
 - gh (GitHub CLI)
 - jq, ripgrep, fzf
 - uv (Python package manager)
-
-The base image includes: Claude Code, Git, Node.js, Python, Go, Docker CLI, build-essential.
+- Git
 
 ## How it works
 
-- Each sandbox runs in a Docker Sandbox microVM — isolated filesystem, Docker daemon, and network
-- Claude runs with `--dangerously-skip-permissions` inside the sandbox
-- Your `~/.claude` config is mounted read-only (auth, settings, MCP servers, skills)
+- Each container runs Claude with `--dangerously-skip-permissions` in an isolated environment
+- Your project worktree is bind-mounted to `/workspace`
+- Your `~/.claude` config is mounted for auth, settings, MCP servers, and skills
 - Git worktrees isolate work per-branch — Claude can't affect your main branch
-- No remote git access from the sandbox — review and push from your host
+- No remote git access from the container — review and push from your host
