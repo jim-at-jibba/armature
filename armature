@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TEMPLATE="armature:v1"
-SANDBOX_PREFIX="armature"
+CONTAINER_PREFIX="armature"
 
 # --- Help ---
 
@@ -19,14 +19,14 @@ Usage:
   armature rm <branch>
 
 Commands:
-  run       Create a worktree (if needed) and launch a sandbox (default)
-  attach    Attach to a running sandbox (infers from cwd if no branch given)
-  ls        List running Armature sandboxes
-  stop      Stop a sandbox (infers from cwd if no branch given)
-  rm        Stop and remove a sandbox
+  run       Create a worktree (if needed) and launch a container (default)
+  attach    Attach to a running container (infers from cwd if no branch given)
+  ls        List running Armature containers
+  stop      Stop a container (infers from cwd if no branch given)
+  rm        Stop and remove a container
 
 Flags:
-  -d, --detach        Launch sandbox in the background
+  -d, --detach        Launch container in the background
   --prompt <file>     Pass a prompt file to Claude
   -h, --help          Show this help message
 HELP
@@ -44,44 +44,32 @@ require_git() {
     || die "not inside a git repository"
 }
 
-require_docker_sandbox() {
-  docker sandbox ls > /dev/null 2>&1 \
-    || die "docker sandbox is not available — is Docker Desktop running?"
+require_docker() {
+  docker info > /dev/null 2>&1 \
+    || die "docker is not available — is Docker running?"
 }
 
-# Check the template image has been built
 require_template() {
   docker image inspect "$TEMPLATE" > /dev/null 2>&1 \
     || die "template image $TEMPLATE not found — run: docker build -t $TEMPLATE ."
 }
 
-# Get the repo name (basename of the git toplevel)
 repo_name() {
   basename "$(git rev-parse --show-toplevel)"
 }
 
-# Get the current branch name
-current_branch() {
-  git rev-parse --abbrev-ref HEAD
-}
-
-# Sanitise a branch name for use in paths and sandbox names
-# Replaces slashes, spaces, and other invalid chars with hyphens
 sanitise() {
   echo "$1" | tr '/' '-' | tr -c '[:alnum:]-_.' '-' | sed 's/^-//;s/-$//'
 }
 
-# Derive sandbox name from branch
-sandbox_name() {
-  echo "${SANDBOX_PREFIX}-$(sanitise "$1")"
+container_name() {
+  echo "${CONTAINER_PREFIX}-$(sanitise "$1")"
 }
 
-# Check if a sandbox with the given name is running
-sandbox_exists() {
-  docker sandbox ls --json 2>/dev/null | jq -e ".sandboxes[] | select(.name == \"$1\")" > /dev/null 2>&1
+container_running() {
+  docker ps --filter "name=^${1}$" --format '{{.Names}}' 2>/dev/null | grep -q "^${1}$"
 }
 
-# Detect branch from current worktree directory
 branch_from_cwd() {
   local branch
   branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) \
@@ -97,7 +85,6 @@ cmd_run() {
   local prompt_file=""
   local detach=false
 
-  # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d|--detach)   detach=true; shift ;;
@@ -105,6 +92,7 @@ cmd_run() {
         [[ -n "${2:-}" ]] || die "--prompt requires a file argument"
         prompt_file="$2"
         [[ -f "$prompt_file" ]] || die "prompt file not found: $prompt_file"
+        prompt_file="$(cd "$(dirname "$prompt_file")" && pwd)/$(basename "$prompt_file")"
         shift 2
         ;;
       -h|--help)     show_help; exit 0 ;;
@@ -127,12 +115,10 @@ cmd_run() {
   local worktree_path branch
 
   if [[ -d "$target" ]]; then
-    # Existing directory — verify it's a git directory
     worktree_path="$(cd "$target" && pwd)"
     branch=$(cd "$worktree_path" && git rev-parse --abbrev-ref HEAD) \
       || die "$target is not a git directory"
   else
-    # Treat as branch name — need to be inside a git repo
     require_git
     branch="$target"
     local repo
@@ -140,12 +126,10 @@ cmd_run() {
     worktree_path="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/${repo}-$(sanitise "$branch")"
 
     if [[ -d "$worktree_path" ]]; then
-      # Verify it's actually a git directory
       (cd "$worktree_path" && git rev-parse --git-dir > /dev/null 2>&1) \
         || die "$worktree_path exists but is not a git worktree"
       echo "Using existing worktree at $worktree_path"
     else
-      # Create branch if it doesn't exist
       if ! git rev-parse --verify "$branch" > /dev/null 2>&1; then
         echo "Creating branch $branch from HEAD"
         git branch "$branch"
@@ -155,52 +139,67 @@ cmd_run() {
     fi
   fi
 
-  require_docker_sandbox
+  require_docker
   require_template
 
   local name
-  name=$(sandbox_name "$branch")
+  name=$(container_name "$branch")
 
-  # If sandbox already exists, attach instead (warn if prompt would be discarded)
-  if sandbox_exists "$name"; then
+  # If container already exists, attach instead
+  if container_running "$name"; then
     if [[ -n "$prompt" || -n "$prompt_file" ]]; then
-      echo "Warning: sandbox $name is already running — ignoring prompt, attaching to existing session" >&2
+      echo "Warning: container $name is already running — ignoring prompt, attaching" >&2
     else
-      echo "Sandbox $name is already running — attaching"
+      echo "Container $name is already running — attaching"
     fi
-    exec docker sandbox exec "$name" claude --dangerously-skip-permissions
+    exec docker exec -it "$name" claude --dangerously-skip-permissions
   fi
 
-  # Build docker sandbox run command
-  # Flags must come before workspaces in docker sandbox run
-  local -a cmd=(docker sandbox run
-    --name "$name"
-    --template "$TEMPLATE"
-    claude "$worktree_path" "${HOME}/.claude:ro"
-    --)
+  # Remove stopped container with same name if it exists
+  docker rm "$name" 2>/dev/null || true
 
-  cmd+=(--dangerously-skip-permissions)
+  # Build claude args
+  local -a claude_args=(--dangerously-skip-permissions)
 
   if [[ -n "$prompt" ]]; then
-    cmd+=(-p "$prompt")
+    claude_args+=(-p "$prompt")
   elif [[ -n "$prompt_file" ]]; then
-    cmd+=(--prompt-file "$prompt_file")
+    claude_args+=(--prompt-file "/workspace/.armature-prompt")
   fi
 
-  echo "Launching sandbox $name for $worktree_path"
+  # Build docker run command
+  local -a cmd=(docker run
+    --name "$name"
+    -v "$worktree_path:/workspace"
+    -v "${HOME}/.claude:/home/node/.claude"
+  )
+
+  # Mount .claude.json if it exists (Claude Code config/auth)
+  if [[ -f "${HOME}/.claude.json" ]]; then
+    cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json")
+  fi
+
+  # Mount prompt file into container if provided
+  if [[ -n "$prompt_file" ]]; then
+    cmd+=(-v "$prompt_file:/workspace/.armature-prompt:ro")
+  fi
+
+  echo "Launching container $name for $worktree_path"
 
   if [[ "$detach" == true ]]; then
-    # Note: docker sandbox run does not support --detach natively.
-    # Shell backgrounding is used as a workaround.
-    "${cmd[@]}" &
-    disown
-    echo "Sandbox $name launched in background"
+    cmd+=(-d)
+    cmd+=("$TEMPLATE" claude "${claude_args[@]}")
+    "${cmd[@]}"
+    echo "Container $name launched in background"
   else
+    cmd+=(-it)
+    cmd+=("$TEMPLATE" claude "${claude_args[@]}")
     exec "${cmd[@]}"
   fi
 }
+
 cmd_attach() {
-  require_docker_sandbox
+  require_docker
 
   local branch
 
@@ -212,20 +211,22 @@ cmd_attach() {
   fi
 
   local name
-  name=$(sandbox_name "$branch")
+  name=$(container_name "$branch")
 
-  sandbox_exists "$name" || die "no running sandbox named $name"
+  container_running "$name" || die "no running container named $name"
 
-  echo "Attaching to sandbox $name"
-  exec docker sandbox exec "$name" claude --dangerously-skip-permissions
+  echo "Attaching to container $name"
+  exec docker exec -it "$name" claude --dangerously-skip-permissions
 }
+
 cmd_ls() {
-  require_docker_sandbox
-  echo "Running Armature sandboxes:"
-  docker sandbox ls 2>/dev/null | grep "${SANDBOX_PREFIX}-" || echo "  (none)"
+  require_docker
+  echo "Running Armature containers:"
+  docker ps --filter "name=${CONTAINER_PREFIX}-" --format "  {{.Names}}\t{{.Status}}" 2>/dev/null || echo "  (none)"
 }
+
 cmd_stop() {
-  require_docker_sandbox
+  require_docker
 
   local branch
 
@@ -237,22 +238,23 @@ cmd_stop() {
   fi
 
   local name
-  name=$(sandbox_name "$branch")
+  name=$(container_name "$branch")
 
-  echo "Stopping sandbox $name"
-  docker sandbox stop "$name"
+  echo "Stopping container $name"
+  docker stop "$name"
 }
+
 cmd_rm() {
-  require_docker_sandbox
+  require_docker
 
   [[ $# -gt 0 ]] || die "usage: armature rm <branch>"
 
   local name
-  name=$(sandbox_name "$1")
+  name=$(container_name "$1")
 
-  echo "Stopping and removing sandbox $name"
-  docker sandbox stop "$name" 2>/dev/null || true
-  docker sandbox rm "$name"
+  echo "Stopping and removing container $name"
+  docker stop "$name" 2>/dev/null || true
+  docker rm "$name"
 }
 
 # --- Main dispatcher ---
@@ -266,7 +268,7 @@ main() {
     stop)      shift; cmd_stop "$@" ;;
     rm)        shift; cmd_rm "$@" ;;
     "")        show_help; exit 0 ;;
-    *)         cmd_run "$@" ;;  # default subcommand is run
+    *)         cmd_run "$@" ;;
   esac
 }
 
