@@ -9,6 +9,7 @@ Run Claude Code with full permissions inside a Docker container, tied to git wor
 
 - [Docker](https://www.docker.com/products/docker-desktop/)
 - Git
+- A Claude Code authentication token (see [Authentication](#authentication))
 
 ## Setup
 
@@ -26,6 +27,24 @@ Run Claude Code with full permissions inside a Docker container, tied to git wor
    ```bash
    ln -s "$(pwd)/armature" /usr/local/bin/armature
    ```
+
+4. Set up authentication (see below)
+
+## Authentication
+
+Claude Code uses OAuth tokens stored in the macOS Keychain, which can't be mounted into a container. To authenticate inside the container, generate a long-lived token:
+
+```bash
+claude setup-token
+```
+
+Then add it to your shell profile (e.g. `~/.zshenv`):
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=<your-token>
+```
+
+Armature will automatically pass this into the container. This works with team/org accounts.
 
 ## Usage
 
