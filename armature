@@ -89,7 +89,7 @@ branch_from_cwd() {
   echo "$branch"
 }
 
-# --- Subcommand placeholders (filled in subsequent tasks) ---
+# --- Subcommands ---
 
 cmd_run() {
   local target=""
