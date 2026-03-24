@@ -176,7 +176,7 @@ cmd_run() {
 
   # Mount .claude.json if it exists (Claude Code config/auth)
   if [[ -f "${HOME}/.claude.json" ]]; then
-    cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json")
+    cmd+=(-v "${HOME}/.claude.json:/home/node/.claude.json:ro")
   fi
 
   # Pass through OAuth token if set
