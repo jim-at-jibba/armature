@@ -91,7 +91,112 @@ branch_from_cwd() {
 
 # --- Subcommand placeholders (filled in subsequent tasks) ---
 
-cmd_run() { die "not yet implemented"; }
+cmd_run() {
+  local target=""
+  local prompt=""
+  local prompt_file=""
+  local detach=false
+
+  # Parse arguments
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -d|--detach)   detach=true; shift ;;
+      --prompt)
+        [[ -n "${2:-}" ]] || die "--prompt requires a file argument"
+        prompt_file="$2"
+        [[ -f "$prompt_file" ]] || die "prompt file not found: $prompt_file"
+        shift 2
+        ;;
+      -h|--help)     show_help; exit 0 ;;
+      *)
+        if [[ -z "$target" ]]; then
+          target="$1"
+        elif [[ -z "$prompt" ]]; then
+          prompt="$1"
+        else
+          die "unexpected argument: $1"
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  [[ -n "$target" ]] || die "usage: armature run <branch|path> [prompt] [flags]"
+
+  # Resolve worktree
+  local worktree_path branch
+
+  if [[ -d "$target" ]]; then
+    # Existing directory — verify it's a git directory
+    worktree_path="$(cd "$target" && pwd)"
+    branch=$(cd "$worktree_path" && git rev-parse --abbrev-ref HEAD) \
+      || die "$target is not a git directory"
+  else
+    # Treat as branch name — need to be inside a git repo
+    require_git
+    branch="$target"
+    local repo
+    repo=$(repo_name)
+    worktree_path="$(git rev-parse --show-toplevel)/../${repo}-$(sanitise "$branch")"
+
+    if [[ -d "$worktree_path" ]]; then
+      # Verify it's actually a git directory
+      (cd "$worktree_path" && git rev-parse --git-dir > /dev/null 2>&1) \
+        || die "$worktree_path exists but is not a git worktree"
+      echo "Using existing worktree at $worktree_path"
+    else
+      # Create branch if it doesn't exist
+      if ! git rev-parse --verify "$branch" > /dev/null 2>&1; then
+        echo "Creating branch $branch from HEAD"
+        git branch "$branch"
+      fi
+      echo "Creating worktree at $worktree_path"
+      git worktree add "$worktree_path" "$branch"
+    fi
+  fi
+
+  require_docker_sandbox
+  require_template
+
+  local name
+  name=$(sandbox_name "$branch")
+
+  # If sandbox already exists, attach instead (warn if prompt would be discarded)
+  if sandbox_exists "$name"; then
+    if [[ -n "$prompt" || -n "$prompt_file" ]]; then
+      echo "Warning: sandbox $name is already running — ignoring prompt, attaching to existing session" >&2
+    else
+      echo "Sandbox $name is already running — attaching"
+    fi
+    exec docker sandbox exec "$name" claude --dangerously-skip-permissions
+  fi
+
+  # Build docker sandbox run command
+  local -a cmd=(docker sandbox run claude "$worktree_path" "${HOME}/.claude:ro"
+    --name "$name"
+    --template "$TEMPLATE"
+    --)
+
+  cmd+=(--dangerously-skip-permissions)
+
+  if [[ -n "$prompt" ]]; then
+    cmd+=(-p "$prompt")
+  elif [[ -n "$prompt_file" ]]; then
+    cmd+=(--prompt-file "$prompt_file")
+  fi
+
+  echo "Launching sandbox $name for $worktree_path"
+
+  if [[ "$detach" == true ]]; then
+    # Note: docker sandbox run does not support --detach natively.
+    # Shell backgrounding is used as a workaround.
+    "${cmd[@]}" &
+    disown
+    echo "Sandbox $name launched in background"
+  else
+    exec "${cmd[@]}"
+  fi
+}
 cmd_attach() { die "not yet implemented"; }
 cmd_ls() { die "not yet implemented"; }
 cmd_stop() { die "not yet implemented"; }
