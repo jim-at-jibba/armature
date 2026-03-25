@@ -88,7 +88,7 @@ The internal skeleton that gives a robot its structure.
 Armature gives Claude Code a safe, isolated frame to operate in.
 
 Usage:
-  armature [run] <branch|path> [prompt] [flags]
+  armature [run] [branch|path] [prompt] [flags]
   armature attach [branch]
   armature ls
   armature stop [branch]
@@ -96,6 +96,7 @@ Usage:
 
 Commands:
   run       Create a worktree (if needed) and launch a container (default)
+            If no branch or path is given, the current directory is used.
   attach    Attach to a running container (infers from cwd if no branch given)
   ls        List running Armature containers
   stop      Stop a container (infers from cwd if no branch given)
@@ -185,7 +186,10 @@ cmd_run() {
     esac
   done
 
-  [[ -n "$target" ]] || die "usage: armature run <branch|path> [prompt] [flags]"
+  if [[ -z "$target" ]]; then
+    require_git
+    target="."
+  fi
 
   # Resolve worktree
   local worktree_path branch
