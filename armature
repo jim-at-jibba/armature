@@ -4,6 +4,64 @@ set -euo pipefail
 DEFAULT_IMAGE="armature:v1"
 CONTAINER_PREFIX="armature"
 
+# --- Gum detection ---
+
+HAS_GUM=false
+command -v gum &>/dev/null && HAS_GUM=true
+
+# --- Fancy output helpers (gum with plain fallback) ---
+
+fancy_header() {
+  if [[ "$HAS_GUM" == true ]]; then
+    gum style --border rounded --foreground 212 --border-foreground 212 --padding "0 1" "$1"
+  else
+    echo "=== $1 ==="
+  fi
+}
+
+fancy_log() {
+  if [[ "$HAS_GUM" == true ]]; then
+    gum style --foreground 212 "  $1"
+  else
+    echo "$1"
+  fi
+}
+
+fancy_warn() {
+  if [[ "$HAS_GUM" == true ]]; then
+    gum style --foreground 214 "  ⚠ $1" >&2
+  else
+    echo "Warning: $1" >&2
+  fi
+}
+
+fancy_error() {
+  if [[ "$HAS_GUM" == true ]]; then
+    gum style --foreground 196 "  ✗ $1" >&2
+  else
+    echo "armature: $1" >&2
+  fi
+}
+
+fancy_spin() {
+  local msg="$1"
+  shift
+  if [[ "$HAS_GUM" == true ]]; then
+    gum spin --spinner dot --title "$msg" -- "$@"
+  else
+    echo "$msg"
+    "$@"
+  fi
+}
+
+fancy_table() {
+  if [[ "$HAS_GUM" == true ]]; then
+    gum format --type template
+  else
+    column -t
+  fi
+}
+
 # Resolve image: .armature.json > ARMATURE_IMAGE env var > default
 resolve_image() {
   # Check for .armature.json in the worktree or current directory
@@ -24,8 +82,9 @@ resolve_image() {
 # --- Help ---
 
 show_help() {
+  fancy_header "Armature"
   cat <<'HELP'
-Armature — the internal skeleton that gives a robot its structure.
+The internal skeleton that gives a robot its structure.
 Armature gives Claude Code a safe, isolated frame to operate in.
 
 Usage:
@@ -52,7 +111,7 @@ HELP
 # --- Helpers ---
 
 die() {
-  echo "armature: $1" >&2
+  fancy_error "$1"
   exit 1
 }
 
@@ -145,14 +204,13 @@ cmd_run() {
     if [[ -d "$worktree_path" ]]; then
       (cd "$worktree_path" && git rev-parse --git-dir > /dev/null 2>&1) \
         || die "$worktree_path exists but is not a git worktree"
-      echo "Using existing worktree at $worktree_path"
+      fancy_log "Using existing worktree at $worktree_path"
     else
       if ! git rev-parse --verify "$branch" > /dev/null 2>&1; then
-        echo "Creating branch $branch from HEAD"
+        fancy_log "Creating branch $branch from HEAD"
         git branch "$branch"
       fi
-      echo "Creating worktree at $worktree_path"
-      git worktree add "$worktree_path" "$branch"
+      fancy_spin "Creating worktree at $worktree_path" git worktree add "$worktree_path" "$branch"
     fi
   fi
 
@@ -168,9 +226,9 @@ cmd_run() {
   # If container already exists, attach instead
   if container_running "$name"; then
     if [[ -n "$prompt" || -n "$prompt_file" ]]; then
-      echo "Warning: container $name is already running — ignoring prompt, attaching" >&2
+      fancy_warn "container $name is already running — ignoring prompt, attaching"
     else
-      echo "Container $name is already running — attaching"
+      fancy_log "Container $name is already running — attaching"
     fi
     exec docker exec -it "$name" claude --dangerously-skip-permissions
   fi
@@ -223,13 +281,13 @@ cmd_run() {
     cmd+=(-v "$prompt_file:/workspace/.armature-prompt:ro")
   fi
 
-  echo "Launching container $name for $worktree_path"
+  fancy_log "Launching container $name for $worktree_path"
 
   if [[ "$detach" == true ]]; then
     cmd+=(-d)
     cmd+=("$image" claude "${claude_args[@]}")
     "${cmd[@]}"
-    echo "Container $name launched in background"
+    fancy_log "Container $name launched in background"
   else
     cmd+=(-it)
     cmd+=("$image" claude "${claude_args[@]}")
@@ -254,14 +312,20 @@ cmd_attach() {
 
   container_running "$name" || die "no running container named $name"
 
-  echo "Attaching to container $name"
+  fancy_log "Attaching to container $name"
   exec docker exec -it "$name" claude --dangerously-skip-permissions
 }
 
 cmd_ls() {
   require_docker
-  echo "Running Armature containers:"
-  docker ps --filter "name=${CONTAINER_PREFIX}-" --format "  {{.Names}}\t{{.Status}}" 2>/dev/null || echo "  (none)"
+  fancy_header "Running Containers"
+  local output
+  output=$(docker ps --filter "name=${CONTAINER_PREFIX}-" --format "{{.Names}}\t{{.Status}}" 2>/dev/null)
+  if [[ -z "$output" ]]; then
+    echo "  (none)"
+  else
+    echo "$output" | fancy_table
+  fi
 }
 
 cmd_stop() {
@@ -279,7 +343,7 @@ cmd_stop() {
   local name
   name=$(container_name "$branch")
 
-  echo "Stopping container $name"
+  fancy_log "Stopping container $name"
   docker stop "$name"
 }
 
@@ -291,7 +355,7 @@ cmd_rm() {
   local name
   name=$(container_name "$1")
 
-  echo "Stopping and removing container $name"
+  fancy_log "Stopping and removing container $name"
   docker stop "$name" 2>/dev/null || true
   docker rm "$name"
 }
