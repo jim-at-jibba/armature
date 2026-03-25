@@ -48,15 +48,17 @@ Armature will automatically pass this into the container. This works with team/o
 
 ## Usage
 
-### Launch a container
+### Recommended: use with git worktrees
 
-From any git repository:
+The recommended way to use armature is with git worktrees. Pass a branch name and armature creates a worktree and launches Claude in it. This keeps Claude's work isolated from your main checkout — you can keep working on `main` while Claude works on a feature branch.
 
 ```bash
-# Create a worktree and launch Claude interactively
+cd ~/code/my-project
+
+# Create a worktree for a feature branch and launch Claude
 armature my-feature
 
-# Launch with a task for Claude
+# Launch with a task
 armature my-feature "Refactor auth module per docs/auth-rfc.md"
 
 # Launch with a prompt file
@@ -65,6 +67,22 @@ armature my-feature --prompt tasks.md
 # Launch in the background
 armature my-feature "Implement feature X" -d
 ```
+
+The worktree is created as a sibling directory (e.g. `~/code/my-project-my-feature`). Changes Claude makes appear there in real time.
+
+### Without worktrees
+
+You can also run armature from any git directory without creating a worktree. Just run `armature run` with no arguments — it mounts the current directory:
+
+```bash
+cd ~/code/my-project
+git checkout feature/login
+
+# Launch Claude against the current directory and branch
+armature run
+```
+
+This works, but be aware that Claude is working directly in your checkout. If you want to keep working in the same repo while Claude runs, worktrees are the safer option.
 
 ### Attach to a running container
 
