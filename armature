@@ -250,18 +250,27 @@ cmd_run() {
   fi
 
   # Build docker run command
+  # Mount the git common dir (bare repo or .git dir) so git commands work in the worktree
+  local git_common_dir
+  git_common_dir=$(cd "$worktree_path" && git rev-parse --git-common-dir 2>/dev/null | xargs realpath 2>/dev/null || true)
+
   local -a cmd=(docker run
     --name "$name"
     -e "ARMATURE=1"
     -v "$worktree_path:/workspace"
     -v "${HOME}/.claude:/home/node/.claude"
+    -v "${HOME}/.claude:${HOME}/.claude"
   )
+
+  if [[ -n "$git_common_dir" && "$git_common_dir" != "$worktree_path"* ]]; then
+    cmd+=(-v "$git_common_dir:$git_common_dir:ro")
+  fi
 
   # Resolve symlinks in .claude (hooks, skills, commands may point outside ~/.claude)
   for link in "${HOME}/.claude/hooks" "${HOME}/.claude/skills" "${HOME}/.claude/commands"; do
     if [[ -L "$link" ]]; then
       local target
-      target=$(readlink "$link")
+      target=$(readlink -f "$link")
       cmd+=(-v "$target:$target:ro")
     fi
   done
