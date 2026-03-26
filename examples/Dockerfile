@@ -25,4 +25,7 @@ RUN git clone https://github.com/asdf-vm/asdf.git /opt/asdf --branch v0.14.1 \
     && echo '. /opt/asdf/asdf.sh' >> /etc/bash.bashrc \
     && echo '. /opt/asdf/asdf.sh' >> /etc/profile.d/asdf.sh
 
+ENV PATH="/opt/asdf/bin:/opt/asdf/shims:$PATH"
+
 USER node
+
