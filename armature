@@ -79,6 +79,98 @@ resolve_image() {
   echo "${ARMATURE_IMAGE:-$DEFAULT_IMAGE}"
 }
 
+# Load hooks array from a config file for a given lifecycle point
+# Usage: load_hooks <config_file> <lifecycle_point>
+# Outputs one hook command per line
+load_hooks() {
+  local config_file="$1"
+  local lifecycle="$2"
+
+  if [[ -f "$config_file" ]]; then
+    jq -r --arg lc "$lifecycle" '.hooks[$lc] // [] | if type == "array" then .[] else . end' "$config_file" 2>/dev/null
+  fi
+}
+
+# Merge hooks from global and project configs (global first, then project)
+# Usage: merge_hooks <worktree_path> <lifecycle_point>
+# Outputs one hook command per line
+merge_hooks() {
+  local worktree_path="$1"
+  local lifecycle="$2"
+
+  load_hooks "${HOME}/.armature.json" "$lifecycle"
+  load_hooks "${worktree_path}/.armature.json" "$lifecycle"
+}
+
+# Read hook timeout from a config file (default 30)
+hook_timeout() {
+  local config_file="$1"
+  if [[ -f "$config_file" ]]; then
+    jq -r '.hooks.timeout // empty' "$config_file" 2>/dev/null
+  fi
+}
+
+# Resolve the hook timeout: project config > global config > 30s default
+resolve_hook_timeout() {
+  local worktree_path="$1"
+  local timeout
+
+  timeout=$(hook_timeout "${worktree_path}/.armature.json")
+  if [[ -n "$timeout" ]]; then
+    echo "$timeout"
+    return
+  fi
+
+  timeout=$(hook_timeout "${HOME}/.armature.json")
+  if [[ -n "$timeout" ]]; then
+    echo "$timeout"
+    return
+  fi
+
+  echo "30"
+}
+
+# Run hooks for a given lifecycle point
+# Usage: run_hooks <worktree_path> <lifecycle_point>
+# Environment variables are set before calling this function
+run_hooks() {
+  local worktree_path="$1"
+  local lifecycle="$2"
+  local timeout
+  timeout=$(resolve_hook_timeout "$worktree_path")
+
+  local hooks
+  hooks=$(merge_hooks "$worktree_path" "$lifecycle")
+
+  if [[ -z "$hooks" ]]; then
+    return 0
+  fi
+
+  local timeout_cmd=""
+  if command -v gtimeout &>/dev/null; then
+    timeout_cmd="gtimeout $timeout"
+  elif command -v timeout &>/dev/null; then
+    timeout_cmd="timeout $timeout"
+  fi
+
+  fancy_log "Running $lifecycle hooks..."
+
+  local IFS=$'\n'
+  for hook in $hooks; do
+    [[ -n "$hook" ]] || continue
+    fancy_log "  hook: $hook"
+    if [[ -n "$timeout_cmd" ]]; then
+      if ! $timeout_cmd bash -c "$hook" </dev/null; then
+        fancy_warn "$lifecycle hook failed: $hook"
+      fi
+    else
+      if ! bash -c "$hook" </dev/null; then
+        fancy_warn "$lifecycle hook failed: $hook"
+      fi
+    fi
+  done
+}
+
 # --- Help ---
 
 show_help() {
@@ -106,6 +198,11 @@ Flags:
   -d, --detach        Launch container in the background
   --prompt <file>     Pass a prompt file to Claude
   -h, --help          Show this help message
+
+Hooks:
+  Define lifecycle hooks in ~/.armature.json or .armature.json:
+  {"hooks": {"pre-run": [...], "post-run": [...]}}
+  See README for details.
 HELP
 }
 
@@ -227,6 +324,15 @@ cmd_run() {
   local name
   name=$(container_name "$branch")
 
+  # Export hook environment variables
+  export ARMATURE_BRANCH="$branch"
+  export ARMATURE_WORKTREE="$worktree_path"
+  export ARMATURE_CONTAINER="$name"
+  export ARMATURE_PROJECT="$(basename "$(cd "$worktree_path" && git rev-parse --show-toplevel)")"
+
+  # Run pre-run hooks
+  run_hooks "$worktree_path" "pre-run"
+
   # If container already exists, attach instead
   if container_running "$name"; then
     if [[ -n "$prompt" || -n "$prompt_file" ]]; then
@@ -234,7 +340,11 @@ cmd_run() {
     else
       fancy_log "Container $name is already running — attaching"
     fi
-    exec docker exec -it "$name" claude --dangerously-skip-permissions
+    local exit_code=0
+    docker exec -it "$name" claude --dangerously-skip-permissions || exit_code=$?
+    export ARMATURE_EXIT_CODE="$exit_code"
+    run_hooks "$worktree_path" "post-run"
+    return
   fi
 
   # Remove stopped container with same name if it exists
@@ -304,7 +414,10 @@ cmd_run() {
   else
     cmd+=(-it)
     cmd+=("$image" claude "${claude_args[@]}")
-    exec "${cmd[@]}"
+    local exit_code=0
+    "${cmd[@]}" || exit_code=$?
+    export ARMATURE_EXIT_CODE="$exit_code"
+    run_hooks "$worktree_path" "post-run"
   fi
 }
 
@@ -325,8 +438,24 @@ cmd_attach() {
 
   container_running "$name" || die "no running container named $name"
 
+  # Resolve worktree path from container mounts
+  local worktree_path
+  worktree_path=$(docker inspect "$name" --format '{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}')
+
+  # Export hook environment variables
+  export ARMATURE_BRANCH="$branch"
+  export ARMATURE_WORKTREE="$worktree_path"
+  export ARMATURE_CONTAINER="$name"
+  export ARMATURE_PROJECT="$(basename "$(cd "$worktree_path" && git rev-parse --show-toplevel)")"
+
+  # Run pre-run hooks
+  run_hooks "$worktree_path" "pre-run"
+
   fancy_log "Attaching to container $name"
-  exec docker exec -it "$name" claude --dangerously-skip-permissions
+  local exit_code=0
+  docker exec -it "$name" claude --dangerously-skip-permissions || exit_code=$?
+  export ARMATURE_EXIT_CODE="$exit_code"
+  run_hooks "$worktree_path" "post-run"
 }
 
 cmd_ls() {

@@ -173,13 +173,39 @@ See `examples/Dockerfile` for a full example with gh, fzf, uv, and asdf.
 
 ## Hooks
 
-Armature sets `ARMATURE=1` inside the container. If you have hooks that only make sense on the host (e.g. syncing sessions to a local vault, writing to host-only paths), guard them:
+Armature supports lifecycle hooks that run on the host before and after Claude sessions.
+
+### Configuration
+
+Define hooks in `~/.armature.json` (global) or `.armature.json` in your project root (per-project). Global hooks run first, then project hooks.
 
 ```json
 {
-  "type": "command",
-  "command": "[ -n \"$ARMATURE\" ] && exit 0; your-host-only-command"
+  "hooks": {
+    "pre-run": ["~/scripts/before-session.sh"],
+    "post-run": ["~/scripts/after-session.sh"],
+    "timeout": 30
+  }
 }
 ```
 
-This makes the hook silently skip inside the container and run normally on your host.
+Hooks can be a single string or an array of commands. Each command runs via `bash -c`, so shell features (tilde expansion, pipes, variables) work normally.
+
+### Environment Variables
+
+Hooks receive these environment variables:
+
+| Variable | Description | Available |
+|---|---|---|
+| `ARMATURE_BRANCH` | Git branch name | pre-run, post-run |
+| `ARMATURE_WORKTREE` | Host path to worktree | pre-run, post-run |
+| `ARMATURE_CONTAINER` | Docker container name | pre-run, post-run |
+| `ARMATURE_PROJECT` | Repository name | pre-run, post-run |
+| `ARMATURE_EXIT_CODE` | Claude's exit code | post-run only |
+
+### Behavior
+
+- Hooks fire on both `run` and `attach` commands
+- A failing hook prints a warning but does not block the session
+- Default timeout is 30 seconds per hook (configurable via `timeout` in the hooks config)
+- Hooks do not fire on `stop` or `rm` commands

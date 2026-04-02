@@ -1,0 +1,11 @@
+{
+  "image": "armature:v1",
+  "hooks": {
+    "pre-run": ["echo \"Starting armature session on $ARMATURE_BRANCH\""],
+    "post-run": [
+      "echo \"Session ended with exit code $ARMATURE_EXIT_CODE\"",
+      "echo post-run-fired >> /tmp/armature-debug.log"
+    ]
+  }
+}
+
