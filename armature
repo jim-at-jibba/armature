@@ -79,6 +79,34 @@ resolve_image() {
   echo "${ARMATURE_IMAGE:-$DEFAULT_IMAGE}"
 }
 
+# Resolve Claude token: global config > env var
+# Warns if token found in project-level config (risks being committed)
+resolve_claude_token() {
+  local worktree_path="$1"
+
+  # Warn if token present in project config
+  if [[ -f "${worktree_path}/.armature.json" ]]; then
+    local project_token
+    project_token=$(jq -r '.claude_token // empty' "${worktree_path}/.armature.json" 2>/dev/null)
+    if [[ -n "$project_token" ]]; then
+      fancy_warn "token in project config is risky — move to ~/.armature.json"
+    fi
+  fi
+
+  # Global config wins
+  if [[ -f "${HOME}/.armature.json" ]]; then
+    local global_token
+    global_token=$(jq -r '.claude_token // empty' "${HOME}/.armature.json" 2>/dev/null)
+    if [[ -n "$global_token" ]]; then
+      echo "$global_token"
+      return
+    fi
+  fi
+
+  # Fall back to env var
+  echo "${CLAUDE_CODE_OAUTH_TOKEN:-}"
+}
+
 # Load hooks array from a config file for a given lifecycle point
 # Usage: load_hooks <config_file> <lifecycle_point>
 # Outputs one hook command per line
