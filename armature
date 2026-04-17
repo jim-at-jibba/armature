@@ -422,9 +422,11 @@ cmd_run() {
     cmd+=(-v "$tmp_claude_json:/home/node/.claude.json")
   fi
 
-  # Pass through OAuth token if set
-  if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
-    cmd+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}")
+  # Pass through OAuth token: global config > env var > omit (Claude handles login)
+  local claude_token
+  claude_token=$(resolve_claude_token "$worktree_path")
+  if [[ -n "$claude_token" ]]; then
+    cmd+=(-e "CLAUDE_CODE_OAUTH_TOKEN=${claude_token}")
   fi
 
   # Mount prompt file into container if provided
