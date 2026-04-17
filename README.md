@@ -38,13 +38,25 @@ Claude Code uses OAuth tokens stored in the macOS Keychain, which can't be mount
 claude setup-token
 ```
 
-Then add it to your shell profile (e.g. `~/.zshenv`):
+Then configure it using one of these methods (in order of precedence):
 
-```bash
-export CLAUDE_CODE_OAUTH_TOKEN=<your-token>
-```
+1. **Global config (recommended)** — add to `~/.armature.json`:
+   ```json
+   {
+     "claude_token": "<your-token>"
+   }
+   ```
 
-Armature will automatically pass this into the container. This works with team/org accounts.
+2. **Environment variable** — add to your shell profile (e.g. `~/.zshenv`):
+   ```bash
+   export CLAUDE_CODE_OAUTH_TOKEN=<your-token>
+   ```
+
+3. **Neither** — Claude will prompt you to log in inside the container.
+
+Armature automatically passes the resolved token into the container. This works with team/org accounts.
+
+> **Note:** Do not put `claude_token` in a project-level `.armature.json` — it risks being committed. Armature will warn and ignore it.
 
 ## Usage
 
