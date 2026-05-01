@@ -401,17 +401,17 @@ cmd_run() {
   )
 
   if [[ -n "$git_common_dir" && "$git_common_dir" != "$worktree_path"* ]]; then
-    cmd+=(-v "$git_common_dir:$git_common_dir:ro")
+    cmd+=(-v "$git_common_dir:$git_common_dir")
   fi
 
-  # Resolve symlinks in .claude (hooks, skills, commands may point outside ~/.claude)
-  for link in "${HOME}/.claude/hooks" "${HOME}/.claude/skills" "${HOME}/.claude/commands"; do
-    if [[ -L "$link" ]]; then
-      local target
-      target=$(readlink -f "$link")
-      cmd+=(-v "$target:$target:ro")
-    fi
-  done
+  # Resolve any symlinks in .claude that point outside ~/.claude
+  # (settings.json, hooks, skills, commands, plugins all commonly live in dotfiles)
+  local link target
+  while IFS= read -r link; do
+    target=$(readlink -f "$link" 2>/dev/null) || continue
+    [[ -z "$target" || ! -e "$target" || "$target" == "${HOME}/.claude"* ]] && continue
+    cmd+=(-v "$target:$target:ro")
+  done < <(find "${HOME}/.claude" -type l 2>/dev/null)
 
   # Copy .claude.json to a temp file and mount that (Claude needs write access
   # but we don't want it writing back to the host copy)
